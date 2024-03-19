@@ -3,10 +3,18 @@ package control
 import (
 	"context"
 	"fmt"
-	"github.com/go-redis/redis/v8"
 	"sync"
 	"time"
+
+	"github.com/go-redis/redis/v8"
 )
+
+// Интерфейс FloodControl
+type FloodControl interface {
+	// Check возвращает false если достигнут лимит максимально разрешенного
+	// кол-ва запросов согласно заданным правилам флуд контроля.
+	Check(ctx context.Context, userID int64) (bool, error)
+}
 
 type redisFloodControl struct {
 	redisClient *redis.Client
@@ -15,7 +23,7 @@ type redisFloodControl struct {
 	mutex       sync.Mutex
 }
 
-func NewFloodControl(redisClient *redis.Client, maxRequests int, windowSize time.Duration) main.FloodControl {
+func NewFloodControl(redisClient *redis.Client, maxRequests int, windowSize time.Duration) FloodControl {
 	return &redisFloodControl{
 		redisClient: redisClient,
 		maxRequests: maxRequests,

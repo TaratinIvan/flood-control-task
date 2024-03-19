@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/TaratinIvan/flood-control-task/control"
-
 	"github.com/go-redis/redis/v8"
 	"github.com/rs/xid"
+
+	"TaratinIvan/flood-control-task/control"
 )
 
 func main() {
@@ -37,11 +37,4 @@ func main() {
 
 		time.Sleep(time.Second)
 	}
-}
-
-// Интерфейс FloodControl
-type FloodControl interface {
-	// Check возвращает false если достигнут лимит максимально разрешенного
-	// кол-ва запросов согласно заданным правилам флуд контроля.
-	Check(ctx context.Context, userID int64) (bool, error)
 }
