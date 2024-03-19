@@ -3,38 +3,43 @@ package main
 import (
 	"context"
 	"fmt"
+	"github.com/TaratinIvan/flood-control-task/control"
+	"github.com/go-redis/redis"
 	"time"
-
-	"github.com/go-redis/redis/v8"
-	"github.com/rs/xid"
-
-	"TaratinIvan/flood-control-task/control"
 )
 
+// FloodControl interface definition moved to main.go
+type FloodControl interface {
+	Check(ctx context.Context, userID int64) (bool, error)
+}
+
 func main() {
-	// Подключение к Redis
+	// Redis connection details
+	redisHost := "localhost"
+	redisPort := 6379
+
+	// Create a Redis client
 	redisClient := redis.NewClient(&redis.Options{
-		Addr: "localhost:6379",
+		Addr:     fmt.Sprintf("%s:%d", redisHost, redisPort),
+		Password: "", // Set password if needed
+		DB:       0,  // Use the default database
 	})
 
-	// Создание экземпляра FloodControl
-	floodControl := control.NewFloodControl(redisClient, 10, 5)
+	// Create a new flood control instance
+	floodControl := control.NewFloodControl(redisClient, 10*time.Second, 5)
 
-	// Контекст
-	ctx := context.Background()
+	// Check flood control for a user
+	userID := int64(123)
+	allowed, err := floodControl.Check(context.Background(), userID)
+	if err != nil {
+		fmt.Println("Error checking flood control:", err)
+		return
+	}
 
-	// Имитация вызовов Check
-	for i := 0; i < 20; i++ {
-		userID := xid.New().String()
-
-		allowed, err := floodControl.Check(ctx, userID)
-		if err != nil {
-			fmt.Println(err)
-			return
-		}
-
-		fmt.Printf("UserID: %s, Allowed: %v\n", userID, allowed)
-
-		time.Sleep(time.Second)
+	// Print the result
+	if allowed {
+		fmt.Println("Request allowed for user:", userID)
+	} else {
+		fmt.Println("Request denied for user:", userID)
 	}
 }

@@ -2,71 +2,59 @@ package control
 
 import (
 	"context"
-	"fmt"
+	"strconv"
 	"sync"
 	"time"
 
-	"github.com/go-redis/redis/v8"
+	"github.com/go-redis/redis"
 )
 
-// Интерфейс FloodControl
-type FloodControl interface {
-	// Check возвращает false если достигнут лимит максимально разрешенного
-	// кол-ва запросов согласно заданным правилам флуд контроля.
-	Check(ctx context.Context, userID int64) (bool, error)
-}
-
-type redisFloodControl struct {
+// FloodControl implementation (no interface definition here)
+type floodControl struct {
 	redisClient *redis.Client
-	maxRequests int
-	windowSize  time.Duration
 	mutex       sync.Mutex
+	interval    time.Duration
+	limit       int
 }
 
-func NewFloodControl(redisClient *redis.Client, maxRequests int, windowSize time.Duration) FloodControl {
-	return &redisFloodControl{
+// NewFloodControl constructor (same as before)
+func NewFloodControl(redisClient *redis.Client, interval time.Duration, limit int) *floodControl {
+	return &floodControl{
 		redisClient: redisClient,
-		maxRequests: maxRequests,
-		windowSize:  windowSize,
+		mutex:       sync.Mutex{},
+		interval:    interval,
+		limit:       limit,
 	}
 }
 
-func (f *redisFloodControl) Check(ctx context.Context, userID int64) (bool, error) {
+// Check method implementation (same as before)
+func (f *floodControl) Check(ctx context.Context, userID int64) (bool, error) {
 	f.mutex.Lock()
 	defer f.mutex.Unlock()
 
-	key := fmt.Sprintf("flood_control:%d", userID)
+	key := strconv.FormatInt(userID, 10)
 
-	// Получение списка timestamp-ов
-	timestamps, err := f.redisClient.LRange(ctx, key, 0, -1).Result()
+	// Get timestamp and count from Redis
+	timestamp, err := f.redisClient.Get(key).Int64()
 	if err != nil {
 		return false, err
 	}
 
-	// Если за последние N секунд было совершено больше K вызовов
-	if len(timestamps) >= f.maxRequests {
-		// Вычисление разницы между текущим временем и timestamp-ом в начале списка
-		oldestTimestamp, err := time.Parse(time.RFC3339, timestamps[0])
-		if err != nil {
-			return false, err
-		}
-
-		difference := time.Since(oldestTimestamp)
-
-		// Если разница меньше N, то это означает, что лимит запросов превышен
-		if difference < f.windowSize {
-			return false, nil
-		}
-	}
-
-	// Добавление timestamp-а в список
-	err = f.redisClient.LPush(ctx, key, time.Now().Format(time.RFC3339)).Err()
+	count, err := f.redisClient.Incr(key).Result()
 	if err != nil {
 		return false, err
 	}
 
-	// Ограничение длины списка
-	f.redisClient.LTrim(ctx, key, 0, f.maxRequests-1)
+	// Check time since last request
+	now := time.Now()
+	elapsed := now.Sub(time.Unix(timestamp, 0))
 
-	return true, nil
+	// Reset count if interval has passed
+	if elapsed >= f.interval {
+		f.redisClient.Set(key, now.Unix(), 0)
+		count = 1
+	}
+
+	// Return false if count exceeds limit
+	return count <= int64(f.limit), nil
 }
